@@ -1,0 +1,43 @@
+node("master")  {
+    stage("checkout") {
+        checkout([$class: 'GitSCM', branches: [[name: 'origin/master']], doGenerateSubmoduleConfigurations: false, extensions: [], submoduleCfg: [], userRemoteConfigs: [[ credentialsId: '676b1523-f7d6-45a9-8180-b6ec37f616cf', url: 'https://github.com/node-api.git' ]]])
+    }
+    stage('analysis') {
+        def scannerHome = tool 'SonarScanner';
+        withSonarQubeEnv() {
+            sh "${scannerHome}/bin/sonar-scanner"
+        }
+        timeout(time: 1, unit: 'HOURS') {
+            def qg = waitForQualityGate()
+            if (qg.status != 'OK') {
+                error "Pipeline aborted due to quality gate failure: ${qg.status}"
+            }
+        }
+    }
+    stage("build") {
+        try {
+            sh 'sudo docker rmi -f $(docker images |grep \'<none>\')'
+        }
+        catch (Exception e) { }
+        try {
+            sh 'sudo docker rmi -f $(docker images |grep \'harbor.local/test/node-api\')'
+        }
+        catch (Exception e) { }
+        sh 'docker build --no-cache -t harbor.local/test/node-api .'
+    }
+    stage("scan") {
+        try {
+            sh 'sudo trivy --exit-code 1 --severity LOW,MEDIUM,HIGH,CRITICAL harbor.local/test/node-api'
+        }
+        catch (Exception e) {
+            failure {}
+        }
+    }
+    stage("push") {
+        sh 'docker push harbor.local/test/node-api'
+    }
+    stage('deploy') {
+        sh 'kubectl apply -f node-api.yaml'
+        sh 'kubectl rollout restart deployment/node-api'
+    }
+}
