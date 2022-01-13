@@ -28,17 +28,16 @@ node("master")  {
         sh 'docker build --no-cache -t harbor.local/test/dotnet-api .'
     }
     stage("scan") {
-        try {
-            sh 'sudo trivy --exit-code 1 --severity LOW,MEDIUM,HIGH,CRITICAL harbor.local/test/dotnet-api'
-        }
-        catch (Exception e) {
-            failure {}
-        }
+        sh 'sudo trivy --exit-code 1 --severity LOW,MEDIUM,HIGH,CRITICAL harbor.local/test/dotnet-api'
     }
     stage("push") {
         sh 'docker push harbor.local/test/dotnet-api'
     }
+}
+
+node("prod")  {
     stage('deploy') {
+        checkout([$class: 'GitSCM', branches: [[name: 'origin/master']], doGenerateSubmoduleConfigurations: false, extensions: [], submoduleCfg: [], userRemoteConfigs: [[ credentialsId: '676b1523-f7d6-45a9-8180-b6ec37f616cf', url: 'https://github.com/deploy-yaml.git' ]]])
         sh 'kubectl apply -f dotnet-api.yaml'
         sh 'kubectl rollout restart deployment/dotnet-api'
     }
